@@ -1,2 +1,2 @@
 # App-Cliente
-App para o Barbeiro do Felipe 
+App para o Barbeiro do Felipe. 
