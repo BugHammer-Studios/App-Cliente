@@ -1,15 +1,99 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <link rel="stylesheet" href="style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EzCut</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Preciso Corte | Fila da barbearia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>EzCut</h1>
-    <script src="script.js"></script>
-    
-</body>
+  <!-- Fundo em camadas curvas (identidade visual do layout de referência) -->
+  <div class="bg" aria-hidden="true"><span class="hill hill-1"></span><span class="hill hill-2"></span></div>
 
+  <main class="app">
+
+    <!-- TELA 1: Página inicial. Apresenta a barbearia e explica a fila. -->
+    <section class="screen" id="tela-inicio">
+      <h1 class="logo">Preciso Corte</h1>
+      <p class="lead">Entre na fila e acompanhe sua vez pelo celular.</p>
+
+      <ol class="passos">
+        <li>Informe telefone e e-mail</li>
+        <li>Escolha a fila</li>
+        <li>Acompanhe sua posição até ser chamado</li>
+      </ol>
+
+      <button class="btn btn-claro" id="btn-entrar">Entrar na fila</button>
+
+      <!-- Informações básicas (substitua pelos dados reais) -->
+      <p class="info">Seg a Sáb, 9h às 19h<br>Rua Exemplo, 123 · Centro</p>
+    </section>
+
+    <!-- TELA 2: Identificação. Apenas telefone e e-mail, sem senha. -->
+    <section class="screen" id="tela-dados" hidden>
+      <h2 class="logo pequeno">Preciso Corte</h2>
+      <form id="form-dados" novalidate>
+        <label for="telefone">Telefone</label>
+        <input id="telefone" type="tel" inputmode="numeric" placeholder="(21) 99999-9999" autocomplete="tel" maxlength="15">
+        <p class="erro" id="erro-telefone" role="alert"></p>
+
+        <label for="email">E-mail</label>
+        <input id="email" type="email" placeholder="voce@email.com" autocomplete="email">
+        <p class="erro" id="erro-email" role="alert"></p>
+
+        <button class="btn btn-claro" type="submit">Continuar</button>
+        <button class="btn-link" type="button" data-voltar="tela-inicio">Voltar</button>
+      </form>
+    </section>
+
+    <!-- TELA 3: Escolha da fila. Os números são preenchidos pelo script. -->
+    <section class="screen" id="tela-fila" hidden>
+      <h2 class="titulo">Em qual fila você quer entrar?</h2>
+      <div class="opcoes">
+        <button class="opcao" data-fila="barbeiro1">
+          <strong>Barbeiro 1</strong><span>Só ele atende você</span><em data-contagem="barbeiro1"></em>
+        </button>
+        <button class="opcao" data-fila="barbeiro2">
+          <strong>Barbeiro 2</strong><span>Só ele atende você</span><em data-contagem="barbeiro2"></em>
+        </button>
+        <button class="opcao" data-fila="geral">
+          <strong>Fila geral</strong><span>O primeiro barbeiro livre atende você</span><em data-contagem="geral"></em>
+        </button>
+      </div>
+      <button class="btn-link" type="button" data-voltar="tela-dados">Voltar</button>
+    </section>
+
+    <!-- TELA 4: Resumo antes de confirmar a entrada. -->
+    <section class="screen" id="tela-confirmar" hidden>
+      <h2 class="titulo">Confirme sua entrada</h2>
+      <dl class="resumo">
+        <dt>Telefone</dt><dd id="res-telefone"></dd>
+        <dt>E-mail</dt><dd id="res-email"></dd>
+        <dt>Fila escolhida</dt><dd id="res-fila"></dd>
+      </dl>
+      <button class="btn btn-laranja" id="btn-confirmar">Confirmar entrada na fila</button>
+      <button class="btn-link" type="button" data-voltar="tela-fila">Voltar</button>
+    </section>
+
+    <!-- TELA 5: Acompanhamento. Área responsável por exibir a posição atual do cliente. -->
+    <section class="screen" id="tela-posicao" hidden>
+      <h2 class="logo pequeno">Preciso Corte</h2>
+      <div class="card-posicao" id="card-posicao" data-estado="aguardando">
+        <p class="rotulo">Sua posição</p>
+        <p class="numero" id="posicao" aria-live="polite">–</p>
+        <p class="aviso" id="aviso"></p>
+      </div>
+      <dl class="resumo">
+        <dt>Fila</dt><dd id="pos-fila"></dd>
+        <dt>Pessoas à sua frente</dt><dd id="pos-frente"></dd>
+        <dt>Status</dt><dd id="pos-status"></dd>
+      </dl>
+      <button class="btn-link" id="btn-sair">Sair da fila</button>
+    </section>
+
+  </main>
+  <script src="script.js"></script>
+</body>
 </html>

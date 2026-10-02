@@ -1,0 +1,92 @@
+/* ===== Identidade visual (baseada no layout de referência) =====
+   Fundo grafite em camadas curvas, campos e botões brancos em formato de pílula,
+   e um laranja usado somente na ação final de confirmar. */
+:root {
+  --grafite-1: #4f4f5b;
+  --grafite-2: #3b3b47;
+  --grafite-3: #2d2d37;
+  --branco: #fafafa;
+  --laranja: #e89c33;
+  --texto-suave: #c9c9d2;
+  --erro: #ff8a80;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "Quicksand", system-ui, sans-serif;
+  background: var(--grafite-3);
+  color: var(--branco);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+/* Camadas curvas do fundo */
+.bg { position: fixed; inset: 0; z-index: -1; background: var(--grafite-1); overflow: hidden; }
+.hill { position: absolute; left: -25%; width: 150%; border-radius: 50%; }
+.hill-1 { top: 55%; height: 80%; background: var(--grafite-2); }
+.hill-2 { top: 74%; height: 80%; background: var(--grafite-3); }
+
+/* Container central: estreito, pensado primeiro para celular */
+.app { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.screen { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; text-align: center; }
+.screen[hidden] { display: none; }
+
+.logo { font-size: 2.4rem; font-weight: 600; letter-spacing: -.5px; }
+.logo.pequeno { font-size: 1.8rem; margin-bottom: 14px; }
+.titulo { font-size: 1.5rem; font-weight: 600; margin-bottom: 6px; }
+.lead { color: var(--texto-suave); line-height: 1.5; }
+.info { color: var(--texto-suave); font-size: .9rem; line-height: 1.6; margin-top: 8px; }
+
+.passos { list-style: none; padding: 0; display: grid; gap: 8px; text-align: left; margin: 6px 0; }
+.passos li { padding-left: 16px; border-left: 3px solid var(--laranja); color: var(--branco); }
+
+/* Formulário: rótulos acima de campos brancos arredondados */
+form { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+label { font-size: 1.05rem; font-weight: 500; margin-left: 6px; }
+input {
+  font: inherit; color: #222; background: var(--branco);
+  border: 2px solid transparent; border-radius: 999px; padding: 13px 20px; width: 100%;
+}
+input[aria-invalid="true"] { border-color: var(--erro); }
+.erro { min-height: 1.1em; color: var(--erro); font-size: .85rem; margin: 0 0 6px 10px; }
+
+/* Botões */
+.btn {
+  font: inherit; font-size: 1.05rem; font-weight: 600; color: #1d1d24;
+  border: 0; border-radius: 999px; padding: 14px 28px; margin-top: 10px; cursor: pointer;
+  align-self: center; min-width: 200px; transition: transform .15s;
+}
+.btn:active { transform: scale(.97); }
+.btn-claro { background: var(--branco); }
+.btn-laranja { background: var(--laranja); box-shadow: 0 8px 18px rgba(0,0,0,.35); }
+.btn-link { font: inherit; background: none; border: 0; color: var(--texto-suave); text-decoration: underline; cursor: pointer; padding: 8px; align-self: center; }
+:focus-visible { outline: 3px solid var(--laranja); outline-offset: 3px; }
+
+/* Cards de escolha de fila */
+.opcoes { display: grid; gap: 12px; }
+.opcao {
+  font: inherit; text-align: left; color: #1d1d24; background: var(--branco);
+  border: 0; border-radius: 24px; padding: 16px 22px; cursor: pointer;
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+}
+.opcao strong { font-size: 1.2rem; }
+.opcao span { grid-column: 1; color: #555; font-size: .9rem; }
+.opcao em { grid-row: 1 / 3; grid-column: 2; align-self: center; font-style: normal; font-weight: 700; color: var(--grafite-1); text-align: right; font-size: .85rem; }
+
+/* Resumo (confirmação e acompanhamento) */
+.resumo { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; text-align: left; background: rgba(0,0,0,.2); border-radius: 24px; padding: 18px 22px; }
+.resumo dt { color: var(--texto-suave); }
+.resumo dd { text-align: right; font-weight: 600; word-break: break-word; }
+
+/* Tela de acompanhamento: a posição é o elemento mais destacado,
+   para ser lida rapidamente no celular. */
+.card-posicao { background: var(--branco); color: #1d1d24; border-radius: 32px; padding: 26px 20px; }
+.rotulo { font-size: 1.1rem; font-weight: 600; color: #555; }
+.numero { font-size: clamp(5rem, 28vw, 8rem); font-weight: 700; line-height: 1; }
+.aviso { margin-top: 8px; font-weight: 600; min-height: 1.4em; }
+/* Estados: "proximo" e "sua_vez" ganham destaque em laranja */
+.card-posicao[data-estado="proximo"], .card-posicao[data-estado="sua_vez"] { background: var(--laranja); }
+.card-posicao[data-estado="sua_vez"] { animation: pulsar 1.4s ease-in-out infinite; }
+.card-posicao[data-estado="finalizado"] { background: var(--grafite-2); color: var(--branco); }
+.card-posicao[data-estado="finalizado"] .rotulo { color: var(--texto-suave); }
+@keyframes pulsar { 50% { transform: scale(1.03); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
