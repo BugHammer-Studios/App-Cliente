@@ -23,7 +23,7 @@ const STATUS = {
 
 /* ---------- 1. Camada de dados ----------
    Cada cliente tem:
-   { clienteId, telefone, email, filaEscolhida, ordemEntrada, status,
+   { clienteId, telefone, nome, filaEscolhida, ordemEntrada, status,
      barbeiroAtendimento, dataEntrada }
    TODO Firebase: trocar os métodos abaixo por Firestore.
    - listar(): onSnapshot na coleção "fila" (tempo real);
@@ -40,13 +40,13 @@ const FilaService = {
      antes sempre tem número menor. É a ÚNICA base de prioridade da fila.
      No Firebase, use um contador transacional ou serverTimestamp(),
      nunca o relógio do celular, que pode estar errado. */
-  entrar({ telefone, email, filaEscolhida }) {
+  entrar({ telefone, nome, filaEscolhida }) {
     const todos = this.listar();
     const ordemEntrada = todos.reduce((m, c) => Math.max(m, c.ordemEntrada), 0) + 1;
     const cliente = {
       clienteId: "c_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       telefone,
-      email,
+      nome,
       filaEscolhida,
       ordemEntrada,
       status: STATUS.AGUARDANDO,
@@ -113,16 +113,9 @@ function calcularPosicao(todos, cliente) {
   return Math.min(...barbeirosQuePodemAtender(cliente.filaEscolhida).map(posicaoEm));
 }
 
-/* Quantos aguardam em cada opção (mostrado nos cards).
-   A fila geral mostra o total de aguardando, pois qualquer barbeiro atende. */
-function contarAguardando(todos, fila) {
-  const aguardando = todos.filter((c) => c.status === STATUS.AGUARDANDO);
-  return fila === "geral" ? aguardando.length : filaDoBarbeiro(todos, fila).length;
-}
-
 /* ---------- 3. Interface ---------- */
 const $ = (id) => document.getElementById(id);
-const sessao = { telefone: "", email: "", fila: "" }; // dados em preenchimento
+const sessao = { telefone: "", nome: "", fila: "" }; // dados em preenchimento
 
 function mostrarTela(id) {
   document.querySelectorAll(".screen").forEach((s) => (s.hidden = s.id !== id));
@@ -135,59 +128,68 @@ function formatarTelefone(v) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-/* Validação básica: telefone com DDD (10 ou 11 dígitos) e e-mail em formato válido */
-function validarDados(telefone, email) {
+/* Validação básica: telefone com DDD e nome preenchido */
+function validarDados(telefone, nome) {
   const erros = {};
   const digitos = telefone.replace(/\D/g, "");
   if (digitos.length < 10) erros.telefone = "Digite o telefone com DDD.";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) erros.email = "Digite um e-mail válido.";
+  if (!nome) erros.nome = "Digite seu nome.";
   return erros;
 }
 
 function mostrarErros(erros) {
-  ["telefone", "email"].forEach((campo) => {
+  ["telefone", "nome"].forEach((campo) => {
     $("erro-" + campo).textContent = erros[campo] || "";
     $(campo).setAttribute("aria-invalid", erros[campo] ? "true" : "false");
   });
 }
 
-/* Textos de cada estado do atendimento */
-function descreverEstado(cliente, posicao) {
-  if (cliente.status === STATUS.EM_ATENDIMENTO)
-    return posicao === null && cliente.barbeiroAtendimento
-      ? { estado: "sua_vez", status: "Em atendimento", aviso: "É a sua vez! Dirija-se ao barbeiro." }
-      : { estado: "sua_vez", status: "Sua vez", aviso: "É a sua vez!" };
-  if (cliente.status === STATUS.FINALIZADO)
-    return { estado: "finalizado", status: "Atendimento finalizado", aviso: "Obrigado pela visita!" };
-  if (posicao === 1)
-    return { estado: "proximo", status: "Próximo", aviso: "Você é o próximo. Fique por perto." };
-  return { estado: "aguardando", status: "Aguardando atendimento", aviso: "" };
+/* Estados visuais da tela de acompanhamento.
+   Cada um define a classe CSS e os textos exibidos. */
+const ESTADOS_TELA = {
+  longe:    { classe: "estado-longe",    instrucao: "Você está esperando na fila.",                          status: "Em espera" },
+  chegando: { classe: "estado-chegando", instrucao: "Sua vez está chegando, se encaminhe até a barbearia.", status: "Em espera" },
+  vez:      { classe: "estado-vez",      instrucao: "Por favor, vá até a barbearia.",                        status: "Sua Vez" },
+};
+
+/* Decide o estado pela posição: 1º = vez, 2º e 3º = chegando, 4º em diante = longe. */
+function estadoPorPosicao(posicao) {
+  if (posicao <= 1) return "vez";
+  if (posicao <= 3) return "chegando";
+  return "longe";
 }
 
-/* Redesenha a tela de acompanhamento. Chamada a cada mudança nos dados. */
+/* Atualiza texto, número e classe. Chame sempre que a posição mudar
+   (hoje pelo observar(); no futuro pelo onSnapshot do Firebase). */
+function atualizarTelaPosicao(posicao) {
+  const tela = document.getElementById("tela-posicao");
+  const estado = ESTADOS_TELA[estadoPorPosicao(posicao)];
+
+  // Troca só a classe de estado, preservando as demais classes da tela
+  tela.classList.remove(...Object.values(ESTADOS_TELA).map((e) => e.classe));
+  tela.classList.add(estado.classe);
+
+  document.getElementById("instrucao").textContent = estado.instrucao;
+  document.getElementById("posicao").textContent = `${posicao}º`;
+  document.getElementById("status").textContent = estado.status;
+}
+
+/* Lê os dados da fila e atualiza a tela do cliente atual. */
 function renderizarPosicao() {
   const todos = FilaService.listar();
   const eu = todos.find((c) => c.clienteId === FilaService.meuClienteId());
   if (!eu) return mostrarTela("tela-inicio"); // removido da fila ou sem registro
 
-  const posicao = calcularPosicao(todos, eu);
-  const { estado, status, aviso } = descreverEstado(eu, posicao);
+  // Já chamado: mantém o estado "Sua Vez" (o 1º lugar passou a ser atendimento)
+  if (eu.status === STATUS.EM_ATENDIMENTO) return atualizarTelaPosicao(1);
 
-  $("card-posicao").dataset.estado = estado;
-  $("posicao").textContent = posicao ? `${posicao}º` : "✓";
-  $("aviso").textContent = aviso;
-  $("pos-fila").textContent = FILAS[eu.filaEscolhida];
-  $("pos-frente").textContent = posicao ? posicao - 1 : "–";
-  $("pos-status").textContent = status;
-}
-
-function renderizarContagens() {
-  const todos = FilaService.listar();
-  document.querySelectorAll("[data-contagem]").forEach((el) => {
-    const n = contarAguardando(todos, el.dataset.contagem);
-    el.textContent = n === 1 ? "1 pessoa\naguardando" : `${n} pessoas\naguardando`;
-    el.style.whiteSpace = "pre-line";
-  });
+  if (eu.status === STATUS.FINALIZADO) {
+    document.getElementById("instrucao").textContent = "Obrigado pela visita!";
+    document.getElementById("posicao").textContent = "✓";
+    document.getElementById("status").textContent = "Atendimento finalizado";
+    return;
+  }
+  atualizarTelaPosicao(calcularPosicao(todos, eu));
 }
 
 /* ---------- Eventos ---------- */
@@ -202,12 +204,11 @@ $("telefone").addEventListener("input", (e) => (e.target.value = formatarTelefon
 $("form-dados").addEventListener("submit", (e) => {
   e.preventDefault();
   const telefone = $("telefone").value.trim();
-  const email = $("email").value.trim();
-  const erros = validarDados(telefone, email);
+  const nome = $("nome").value.trim();
+  const erros = validarDados(telefone, nome);
   mostrarErros(erros);
   if (Object.keys(erros).length) return;
-  Object.assign(sessao, { telefone, email });
-  renderizarContagens();
+  Object.assign(sessao, { telefone, nome });
   mostrarTela("tela-fila");
 });
 
@@ -215,14 +216,14 @@ document.querySelectorAll("[data-fila]").forEach((card) =>
   card.addEventListener("click", () => {
     sessao.fila = card.dataset.fila;
     $("res-telefone").textContent = sessao.telefone;
-    $("res-email").textContent = sessao.email;
+    $("res-nome").textContent = sessao.nome;
     $("res-fila").textContent = FILAS[sessao.fila];
     mostrarTela("tela-confirmar");
   })
 );
 
 $("btn-confirmar").addEventListener("click", () => {
-  FilaService.entrar({ telefone: sessao.telefone, email: sessao.email, filaEscolhida: sessao.fila });
+  FilaService.entrar({ telefone: sessao.telefone, nome: sessao.nome, filaEscolhida: sessao.fila });
   renderizarPosicao();
   mostrarTela("tela-posicao");
 });
@@ -239,5 +240,4 @@ if (FilaService.meuClienteId() && FilaService.listar().some((c) => c.clienteId =
 }
 FilaService.observar(() => {
   if (!$("tela-posicao").hidden) renderizarPosicao();
-  if (!$("tela-fila").hidden) renderizarContagens();
 });
