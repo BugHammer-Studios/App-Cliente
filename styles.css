@@ -289,11 +289,11 @@ input[aria-invalid="true"] {
 }
 
 .estado-chegando {
-  --cor: #ffc4c0;
+  --cor: #ffffff;
 }
 
 .estado-vez {
-  --cor: #ff4b3e;
+  --cor: #ffffff;
 }
 
 .instrucao {
