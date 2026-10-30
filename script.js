@@ -29,51 +29,58 @@ const STATUS = {
    - listar(): onSnapshot na coleção "fila" (tempo real);
    - entrar(): addDoc com ordemEntrada gerada no servidor. */
 const FilaService = {
-  CHAVE: "preciso-corte:fila",
   CHAVE_CLIENTE: "preciso-corte:meuClienteId",
+  dados: [], carregado: false, ouvindo: false,
 
-  listar() {
-    return JSON.parse(localStorage.getItem(this.CHAVE) || "[]");
+  listar() { return this.dados; },
+  meuClienteId() { return localStorage.getItem(this.CHAVE_CLIENTE); },
+
+  /* Login anônimo: sem e-mail nem senha, só identifica este aparelho */
+  async _login() {
+    const fb = await getFirebase();
+    let u = await new Promise((ok) => { const off = fb.onAuthStateChanged(fb.auth, (x) => { off(); ok(x); }); });
+    if (!u) u = (await fb.signInAnonymously(fb.auth)).user;
+    return { fb, uid: u.uid };
   },
 
-  /* Registra a entrada. ordemEntrada é um contador crescente: quem entrou
-     antes sempre tem número menor. É a ÚNICA base de prioridade da fila.
-     No Firebase, use um contador transacional ou serverTimestamp(),
-     nunca o relógio do celular, que pode estar errado. */
-  entrar({ telefone, nome, filaEscolhida }) {
-    const todos = this.listar();
-    const ordemEntrada = todos.reduce((m, c) => Math.max(m, c.ordemEntrada), 0) + 1;
-    const cliente = {
-      clienteId: "c_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-      telefone,
-      nome,
-      filaEscolhida,
-      ordemEntrada,
-      status: STATUS.AGUARDANDO,
-      barbeiroAtendimento: null,
-      dataEntrada: new Date().toISOString(),
-    };
-    localStorage.setItem(this.CHAVE, JSON.stringify([...todos, cliente]));
-    localStorage.setItem(this.CHAVE_CLIENTE, cliente.clienteId);
-    return cliente;
+  /* Grava na "fila" (dados pessoais, só o admin lê) e em "posicoes" (sem dados pessoais).
+     criadoEm vem do servidor, não do relógio do celular. Batch = tudo ou nada. */
+  async entrar({ telefone, nome, filaEscolhida }) {
+    const { fb, uid } = await this._login();
+    const refFila = fb.doc(fb.collection(fb.db, "fila"));
+    const refPub = fb.doc(fb.db, "posicoes", refFila.id);
+    const b = fb.writeBatch(fb.db);
+    b.set(refFila, { nome, telefone: telefone.replace(/\D/g, ""), filaEscolhida, criadoEm: fb.serverTimestamp(), uid });
+    b.set(refPub, { filaEscolhida, status: STATUS.AGUARDANDO, criadoEm: fb.serverTimestamp(), uid });
+    await b.commit();
+    localStorage.setItem(this.CHAVE_CLIENTE, refFila.id);
   },
 
-  remover(clienteId) {
-    const restantes = this.listar().filter((c) => c.clienteId !== clienteId);
-    localStorage.setItem(this.CHAVE, JSON.stringify(restantes));
+  async remover(id) {
+    const { fb } = await this._login();
+    try { await fb.deleteDoc(fb.doc(fb.db, "fila", id)); } catch (e) { /* já chamado/removido */ }
+    await fb.deleteDoc(fb.doc(fb.db, "posicoes", id));
     localStorage.removeItem(this.CHAVE_CLIENTE);
   },
 
-  meuClienteId() {
-    return localStorage.getItem(this.CHAVE_CLIENTE);
-  },
-
-  /* Avisa a interface quando os dados mudarem.
-     Hoje: evento "storage" (outra aba) + verificação a cada 3 s.
-     TODO Firebase: substituir por onSnapshot, que dispara na hora. */
-  observar(callback) {
-    window.addEventListener("storage", callback);
-    setInterval(callback, 3000);
+  /* Tempo real: onSnapshot na coleção pública */
+  async observar(callback) {
+    if (this.ouvindo) return;
+    this.ouvindo = true;
+    try {
+      const { fb } = await this._login();
+      fb.onSnapshot(fb.collection(fb.db, "posicoes"), (snap) => {
+        this.dados = snap.docs.map((d) => {
+          const x = d.data({ serverTimestamps: "estimate" });
+          return {
+            clienteId: d.id, filaEscolhida: x.filaEscolhida, status: x.status,
+            ordemEntrada: x.criadoEm ? x.criadoEm.toMillis() : Date.now()
+          };
+        });
+        this.carregado = true;
+        callback();
+      }, (e) => { console.error(e); this.ouvindo = false; });
+    } catch (e) { console.error(e); this.ouvindo = false; }
   },
 };
 
@@ -176,9 +183,10 @@ function atualizarTelaPosicao(posicao) {
 
 /* Lê os dados da fila e atualiza a tela do cliente atual. */
 function renderizarPosicao() {
+  if (!FilaService.carregado) return;// espera o 1º retorno do Firestore
   const todos = FilaService.listar();
   const eu = todos.find((c) => c.clienteId === FilaService.meuClienteId());
-  if (!eu) return mostrarTela("tela-inicio"); // removido da fila ou sem registro
+  if (!eu) { localStorage.removeItem(FilaService.CHAVE_CLIENTE); return mostrarTela("tela-inicio"); }
 
   // Já chamado: mantém o estado "Sua Vez" (o 1º lugar passou a ser atendimento)
   if (eu.status === STATUS.EM_ATENDIMENTO) return atualizarTelaPosicao(1);
@@ -222,22 +230,29 @@ document.querySelectorAll("[data-fila]").forEach((card) =>
   })
 );
 
-$("btn-confirmar").addEventListener("click", () => {
-  FilaService.entrar({ telefone: sessao.telefone, nome: sessao.nome, filaEscolhida: sessao.fila });
-  renderizarPosicao();
-  mostrarTela("tela-posicao");
+const aoMudar = () => { if (!$("tela-posicao").hidden) renderizarPosicao(); };
+
+$("btn-confirmar").addEventListener("click", async () => {
+  const btn = $("btn-confirmar"); btn.disabled = true;
+  try {
+    await FilaService.entrar({ telefone: sessao.telefone, nome: sessao.nome, filaEscolhida: sessao.fila });
+    $("posicao").textContent = "…";
+    mostrarTela("tela-posicao");
+    FilaService.observar(aoMudar);
+    renderizarPosicao();
+  } catch (e) {
+    console.error("ERRO AO ENTRAR NA FILA:", e);
+    alert("Não foi possível entrar na fila.\n\nCódigo: " + (e.code || e.name || "desconhecido") + "\n" + (e.message || ""));
+  } finally { btn.disabled = false; }
 });
 
-$("btn-sair").addEventListener("click", () => {
-  FilaService.remover(FilaService.meuClienteId());
-  mostrarTela("tela-inicio");
+$("btn-sair").addEventListener("click", async () => {
+  try { await FilaService.remover(FilaService.meuClienteId()); mostrarTela("tela-inicio"); }
+  catch (e) { console.error(e); alert("Não foi possível sair da fila. Tente de novo."); }
 });
 
-/* Ao abrir o site: se o cliente já está na fila, volta direto ao acompanhamento */
-if (FilaService.meuClienteId() && FilaService.listar().some((c) => c.clienteId === FilaService.meuClienteId())) {
-  renderizarPosicao();
+/* Ao abrir o site: se este aparelho já tem um cadastro, volta ao acompanhamento */
+if (FilaService.meuClienteId()) {
   mostrarTela("tela-posicao");
+  FilaService.observar(aoMudar);
 }
-FilaService.observar(() => {
-  if (!$("tela-posicao").hidden) renderizarPosicao();
-});
