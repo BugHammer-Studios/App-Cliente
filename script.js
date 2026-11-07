@@ -21,7 +21,7 @@ const STATUS = {
 };
 
 /* ---------- Regras do nome ---------- */
-const LIMITE_NOME = 50;                              // máximo de caracteres
+const LIMITE_NOME = 30;                              // máximo de caracteres
 const REGEX_NOME = /^[\p{L}][\p{L} '.-]*$/u;         // só letras, espaço, ' . -
 function normalizarNome(n) { return String(n).replace(/\s+/g, " ").trim(); }
 
