@@ -2,8 +2,7 @@
    Preciso Corte, interface do CLIENTE.
 
    Estrutura:
-   1. Camada de dados (FilaService): único lugar que sabe ONDE os dados ficam.
-      Hoje usa localStorage; depois será trocada pelo Firebase sem mexer na interface.
+   1. Camada de dados (FilaService): único lugar que sabe ONDE os dados ficam (Firebase).
    2. Regras da fila (funções puras): elegibilidade, ordem e posição.
    3. Interface: navegação entre telas e renderização.
    ===================================================================== */
@@ -21,13 +20,12 @@ const STATUS = {
   FINALIZADO: "finalizado",
 };
 
-/* ---------- 1. Camada de dados ----------
-   Cada cliente tem:
-   { clienteId, telefone, nome, filaEscolhida, ordemEntrada, status,
-     barbeiroAtendimento, dataEntrada }
-   TODO Firebase: trocar os métodos abaixo por Firestore.
-   - listar(): onSnapshot na coleção "fila" (tempo real);
-   - entrar(): addDoc com ordemEntrada gerada no servidor. */
+/* ---------- Regras do nome ---------- */
+const LIMITE_NOME = 50;                              // máximo de caracteres
+const REGEX_NOME = /^[\p{L}][\p{L} '.-]*$/u;         // só letras, espaço, ' . -
+function normalizarNome(n) { return String(n).replace(/\s+/g, " ").trim(); }
+
+/* ---------- 1. Camada de dados ---------- */
 const FilaService = {
   CHAVE_CLIENTE: "preciso-corte:meuClienteId",
   dados: [], carregado: false, ouvindo: false,
@@ -46,6 +44,10 @@ const FilaService = {
   /* Grava na "fila" (dados pessoais, só o admin lê) e em "posicoes" (sem dados pessoais).
      criadoEm vem do servidor, não do relógio do celular. Batch = tudo ou nada. */
   async entrar({ telefone, nome, filaEscolhida }) {
+    // Segunda barreira: nunca grava nome acima do limite, mesmo que a tela seja burlada
+    nome = normalizarNome(nome);
+    if (!nome || nome.length > LIMITE_NOME) throw new Error("Nome inválido ou acima do limite de " + LIMITE_NOME + " caracteres.");
+
     const { fb, uid } = await this._login();
     const refFila = fb.doc(fb.collection(fb.db, "fila"));
     const refPub = fb.doc(fb.db, "posicoes", refFila.id);
@@ -88,15 +90,12 @@ const FilaService = {
 
 /* Quais filas de barbeiro um cliente enxerga.
    Barbeiro 1 vê: "barbeiro1" OU "geral". Barbeiro 2 vê: "barbeiro2" OU "geral".
-   Cliente da fila geral aparece nas duas listas, mas continua sendo UM registro só.
-   Quando um barbeiro o chama, status vira "em_atendimento" e ele sai da lista
-   de elegíveis do outro barbeiro, evitando atendimento duplo. */
+   Cliente da fila geral aparece nas duas listas, mas continua sendo UM registro só. */
 function barbeirosQuePodemAtender(filaEscolhida) {
   return filaEscolhida === "geral" ? ["barbeiro1", "barbeiro2"] : [filaEscolhida];
 }
 
-/* Clientes aguardando que um barbeiro pode atender, em ordem de chegada.
-   Mesma regra que a tela do barbeiro usará para "Chamar próximo". */
+/* Clientes aguardando que um barbeiro pode atender, em ordem de chegada. */
 function filaDoBarbeiro(todos, barbeiro) {
   return todos
     .filter((c) => c.status === STATUS.AGUARDANDO)
@@ -104,15 +103,8 @@ function filaDoBarbeiro(todos, barbeiro) {
     .sort((a, b) => a.ordemEntrada - b.ordemEntrada);
 }
 
-/* Posição do cliente.
-   Não é o total de cadastrados. Contamos só quem:
-   1. entrou ANTES (ordemEntrada menor);
-   2. ainda está aguardando;
-   3. concorre com o cliente pelo mesmo barbeiro.
-   Assim, quando alguém é chamado, os seguintes avançam sozinhos.
-   Cliente exclusivo: a fila é a do seu barbeiro.
-   Cliente geral: ele pode ser chamado por qualquer barbeiro, então a posição
-   é a MELHOR (menor) entre as duas filas, a que o chamará primeiro. */
+/* Posição do cliente: conta só quem entrou antes, ainda aguarda e concorre pelo mesmo barbeiro.
+   Cliente geral: a posição é a MELHOR (menor) entre as duas filas. */
 function calcularPosicao(todos, cliente) {
   if (cliente.status !== STATUS.AGUARDANDO) return null;
   const posicaoEm = (barbeiro) =>
@@ -135,10 +127,7 @@ function formatarTelefone(v) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-const LIMITE_NOME = 50;
-const REGEX_NOME = /^[\p{L}][\p{L} '.-]*$/u;
-function normalizarNome(n) { return String(n).replace(/\s+/g, " ").trim(); }
-
+/* Validação: telefone com DDD e nome válido (texto, sem números, até LIMITE_NOME) */
 function validarDados(telefone, nome) {
   const erros = {};
   const digitos = telefone.replace(/\D/g, "");
@@ -157,8 +146,18 @@ function mostrarErros(erros) {
   });
 }
 
-/* Estados visuais da tela de acompanhamento.
-   Cada um define a classe CSS e os textos exibidos. */
+/* Aviso de limite do nome: aparece ao chegar em LIMITE_NOME e some ao apagar */
+function avisarLimiteNome(forcar) {
+  const campo = $("nome");
+  const noLimite = campo.value.length >= LIMITE_NOME;
+  if (noLimite || forcar) {
+    $("erro-nome").textContent = `Você chegou ao limite de ${LIMITE_NOME} caracteres.`;
+  } else if ($("erro-nome").textContent.startsWith("Você chegou ao limite")) {
+    $("erro-nome").textContent = "";
+  }
+}
+
+/* Estados visuais da tela de acompanhamento. */
 const ESTADOS_TELA = {
   longe:    { classe: "estado-longe",    instrucao: "Você está esperando na fila.",                          status: "Em espera" },
   chegando: { classe: "estado-chegando", instrucao: "Sua vez está chegando, se encaminhe até a barbearia.", status: "Em espera" },
@@ -172,13 +171,11 @@ function estadoPorPosicao(posicao) {
   return "longe";
 }
 
-/* Atualiza texto, número e classe. Chame sempre que a posição mudar
-   (hoje pelo observar(); no futuro pelo onSnapshot do Firebase). */
+/* Atualiza texto, número e classe. */
 function atualizarTelaPosicao(posicao) {
   const tela = document.getElementById("tela-posicao");
   const estado = ESTADOS_TELA[estadoPorPosicao(posicao)];
 
-  // Troca só a classe de estado, preservando as demais classes da tela
   tela.classList.remove(...Object.values(ESTADOS_TELA).map((e) => e.classe));
   tela.classList.add(estado.classe);
 
@@ -189,19 +186,19 @@ function atualizarTelaPosicao(posicao) {
 
 /* Lê os dados da fila e atualiza a tela do cliente atual. */
 function renderizarPosicao() {
-  if (!FilaService.carregado) return;// espera o 1º retorno do Firestore
+  if (!FilaService.carregado) return; // espera o 1º retorno do Firestore
   const todos = FilaService.listar();
   const eu = todos.find((c) => c.clienteId === FilaService.meuClienteId());
   if (!eu) { localStorage.removeItem(FilaService.CHAVE_CLIENTE); return mostrarTela("tela-inicio"); }
 
-  // Já chamado: mantém o estado "Sua Vez" (o 1º lugar passou a ser atendimento)
+  // Já chamado: "Sua Vez" e, se houver, mostra qual barbeiro chamou
   if (eu.status === STATUS.EM_ATENDIMENTO) {
     atualizarTelaPosicao(1);
     if (eu.chamadoPor && FILAS[eu.chamadoPor])
       document.getElementById("instrucao").textContent = `Chamado pelo ${FILAS[eu.chamadoPor]}. Por favor, vá até a barbearia.`;
     return;
   }
-  
+
   if (eu.status === STATUS.FINALIZADO) {
     document.getElementById("instrucao").textContent = "Obrigado pela visita!";
     document.getElementById("posicao").textContent = "✓";
@@ -220,14 +217,24 @@ document.querySelectorAll("[data-voltar]").forEach((b) =>
 
 $("telefone").addEventListener("input", (e) => (e.target.value = formatarTelefone(e.target.value)));
 
+/* Nome: avisa ao chegar no limite, ao colar texto grande e ao tentar digitar além dele */
+$("nome").addEventListener("input", () => avisarLimiteNome(false));
+$("nome").addEventListener("beforeinput", (e) => {
+  const campo = e.target;
+  const semSelecao = campo.selectionStart === campo.selectionEnd;
+  if (e.inputType && e.inputType.startsWith("insert") && campo.value.length >= LIMITE_NOME && semSelecao) {
+    avisarLimiteNome(true);
+  }
+});
+
 $("form-dados").addEventListener("submit", (e) => {
   e.preventDefault();
   const telefone = $("telefone").value.trim();
-  const nome = normalizarNome($("nome").value);
+  const nome = normalizarNome($("nome").value);   // tira espaços do início/fim e repetidos
   $("nome").value = nome;
   const erros = validarDados(telefone, nome);
   mostrarErros(erros);
-  if (Object.keys(erros).length) return;
+  if (Object.keys(erros).length) return;          // bloqueia: não passa desta tela
   Object.assign(sessao, { telefone, nome });
   mostrarTela("tela-fila");
 });
