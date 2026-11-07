@@ -73,7 +73,7 @@ const FilaService = {
         this.dados = snap.docs.map((d) => {
           const x = d.data({ serverTimestamps: "estimate" });
           return {
-            clienteId: d.id, filaEscolhida: x.filaEscolhida, status: x.status,
+            clienteId: d.id, filaEscolhida: x.filaEscolhida, status: x.status, chamadoPor: x.chamadoPor || null,
             ordemEntrada: x.criadoEm ? x.criadoEm.toMillis() : Date.now()
           };
         });
@@ -135,12 +135,18 @@ function formatarTelefone(v) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-/* Validação básica: telefone com DDD e nome preenchido */
+const LIMITE_NOME = 50;
+const REGEX_NOME = /^[\p{L}][\p{L} '.-]*$/u;
+function normalizarNome(n) { return String(n).replace(/\s+/g, " ").trim(); }
+
 function validarDados(telefone, nome) {
   const erros = {};
   const digitos = telefone.replace(/\D/g, "");
   if (digitos.length < 10) erros.telefone = "Digite o telefone com DDD.";
   if (!nome) erros.nome = "Digite seu nome.";
+  else if (nome.length > LIMITE_NOME) erros.nome = `O nome pode ter no máximo ${LIMITE_NOME} caracteres.`;
+  else if (/\d/.test(nome)) erros.nome = "O nome não pode ter números.";
+  else if (!REGEX_NOME.test(nome)) erros.nome = "Use apenas letras no nome.";
   return erros;
 }
 
@@ -189,8 +195,13 @@ function renderizarPosicao() {
   if (!eu) { localStorage.removeItem(FilaService.CHAVE_CLIENTE); return mostrarTela("tela-inicio"); }
 
   // Já chamado: mantém o estado "Sua Vez" (o 1º lugar passou a ser atendimento)
-  if (eu.status === STATUS.EM_ATENDIMENTO) return atualizarTelaPosicao(1);
-
+  if (eu.status === STATUS.EM_ATENDIMENTO) {
+    atualizarTelaPosicao(1);
+    if (eu.chamadoPor && FILAS[eu.chamadoPor])
+      document.getElementById("instrucao").textContent = `Chamado pelo ${FILAS[eu.chamadoPor]}. Por favor, vá até a barbearia.`;
+    return;
+  }
+  
   if (eu.status === STATUS.FINALIZADO) {
     document.getElementById("instrucao").textContent = "Obrigado pela visita!";
     document.getElementById("posicao").textContent = "✓";
@@ -212,7 +223,8 @@ $("telefone").addEventListener("input", (e) => (e.target.value = formatarTelefon
 $("form-dados").addEventListener("submit", (e) => {
   e.preventDefault();
   const telefone = $("telefone").value.trim();
-  const nome = $("nome").value.trim();
+  const nome = normalizarNome($("nome").value);
+  $("nome").value = nome;
   const erros = validarDados(telefone, nome);
   mostrarErros(erros);
   if (Object.keys(erros).length) return;
